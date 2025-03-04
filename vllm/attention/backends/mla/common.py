@@ -313,8 +313,10 @@ class MLACommonState(AttentionState, Generic[T]):
         cache_config = runner.cache_config
 
         self.chunked_prefill_enabled = scheduler_config.chunked_prefill_enabled
+        self.enable_prefix_caching = cache_config.enable_prefix_caching
 
-        if self.chunked_prefill_enabled:
+        if self.chunked_prefill_enabled or self.enable_prefix_caching:
+            # reuse chunked prefill workspace for prefix caching
             self.chunked_prefill_workspace_size = min(
                 # Max sure there is enough for 8 full length request or at least
                 # 4 pages of cache per request
@@ -430,7 +432,8 @@ class MLACommonState(AttentionState, Generic[T]):
                 "TritonMLAState does not support encoder/decoder yet")
 
     def begin_forward(self, model_input):
-        if self.chunked_prefill_enabled:
+        if self.chunked_prefill_enabled or self.enable_prefix_caching:
+            # reuse chunked prefill workspace for prefix caching
             if not hasattr(self, "chunked_prefill_workspace"):
                 # not self.runner.device does not return the correct device
                 # for this process, (init_device sets the correct device but
@@ -747,8 +750,11 @@ class MLACommonMetadataBuilder(AttentionMetadataBuilder[T], Generic[T]):
         self.block_size = input_builder.block_size
         self.chunked_prefill_enabled = \
             self.runner.scheduler_config.chunked_prefill_enabled
+        self.enable_prefix_caching = \
+            self.runner.cache_config.enable_prefix_caching
 
-        if self.chunked_prefill_enabled:
+        if self.chunked_prefill_enabled or self.enable_prefix_caching:
+            # reuse chunked prefill workspace for prefix caching
             attn_state = self.input_builder.runner.attn_state
             self.chunked_prefill_workspace_size = \
                 attn_state.chunked_prefill_workspace_size
@@ -919,8 +925,10 @@ class MLACommonMetadataBuilder(AttentionMetadataBuilder[T], Generic[T]):
         context_chunk_starts = None
         context_chunk_seq_tot = None
         context_chunk_max_seq_lens = None
-
-        if self.chunked_prefill_enabled and self.num_prefills > 0 \
+        
+        # reuse chunked prefill workspace for prefix caching
+        if (self.chunked_prefill_enabled or self.enable_prefix_caching) \
+            and self.num_prefills > 0 \
             and context_lens_tensor is not None \
             and context_lens_tensor[:self.num_prefills].max() > 0:
 
